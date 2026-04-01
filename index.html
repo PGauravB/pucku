@@ -1,123 +1,623 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>TTS Chat</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BROADCAST — Live Voice Channel</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --accent: #e63946;
+    --accent2: #ffd60a;
+    --text: #e8e8f0;
+    --muted: #5a5a7a;
+    --live: #39e67a;
+  }
 
-  <style>
-    body {
-      background: #000;
-      color: #fff;
-      font-family: Arial;
-      text-align: center;
-      padding: 20px;
-    }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    input {
-      width: 70%;
-      padding: 10px;
-      font-size: 16px;
-      border-radius: 8px;
-      border: none;
-    }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
 
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      border-radius: 8px;
-      border: none;
-      background: #00ffcc;
-      color: #000;
-      margin-left: 10px;
-      cursor: pointer;
-    }
+  /* noise overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.3;
+  }
 
-    #messages {
-      margin-top: 20px;
-      max-height: 300px;
-      overflow-y: auto;
-    }
+  header {
+    width: 100%;
+    padding: 24px 40px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    position: relative;
+    z-index: 1;
+  }
 
-    .msg {
-      margin: 5px;
-      padding: 8px;
-      background: #111;
-      border-radius: 6px;
-    }
-  </style>
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.8rem;
+    letter-spacing: 6px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .logo span { color: var(--accent); }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(57,230,122,0.1);
+    border: 1px solid var(--live);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 0.65rem;
+    letter-spacing: 3px;
+    color: var(--live);
+    font-weight: 700;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--live);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .listener-count {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .listener-count strong { color: var(--accent2); }
+
+  main {
+    width: 100%;
+    max-width: 780px;
+    padding: 40px 24px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Compose box */
+  .compose {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .compose::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+
+  .compose-label {
+    font-size: 0.6rem;
+    letter-spacing: 4px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+  }
+
+  textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 1rem;
+    line-height: 1.6;
+    resize: none;
+    padding: 8px 0 14px;
+    outline: none;
+    min-height: 80px;
+    transition: border-color 0.2s;
+  }
+
+  textarea::placeholder { color: var(--muted); }
+  textarea:focus { border-bottom-color: var(--accent); }
+
+  .compose-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 18px;
+  }
+
+  .char-count {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .char-count.warn { color: var(--accent); }
+
+  .send-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 4px;
+    padding: 12px 32px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .send-btn:hover:not(:disabled) {
+    background: #ff4757;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(230,57,70,0.4);
+  }
+
+  .send-btn:active:not(:disabled) { transform: translateY(0); }
+
+  .send-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .send-btn.sending { animation: btnPulse 0.5s ease; }
+  @keyframes btnPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.96); }
+    100% { transform: scale(1); }
+  }
+
+  /* Feed */
+  .feed-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.6rem;
+    letter-spacing: 4px;
+    color: var(--muted);
+  }
+
+  .feed-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .msg-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    animation: slideIn 0.35s cubic-bezier(0.16,1,0.3,1);
+    position: relative;
+  }
+
+  .msg-card.speaking {
+    border-left-color: var(--live);
+    box-shadow: 0 0 0 1px rgba(57,230,122,0.15), 0 0 20px rgba(57,230,122,0.05);
+  }
+
+  .msg-card.speaking::after {
+    content: '▶ SPEAKING';
+    position: absolute;
+    top: 10px; right: 14px;
+    font-size: 0.55rem;
+    letter-spacing: 3px;
+    color: var(--live);
+    font-weight: 700;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg-icon {
+    width: 32px; height: 32px;
+    background: rgba(230,57,70,0.15);
+    border: 1px solid rgba(230,57,70,0.3);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .msg-body { flex: 1; min-width: 0; }
+
+  .msg-meta {
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    display: flex;
+    gap: 10px;
+  }
+
+  .msg-text {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+
+  /* wave animation for speaking */
+  .wave-bars {
+    display: none;
+    gap: 3px;
+    align-items: center;
+    height: 16px;
+    margin-left: 4px;
+  }
+
+  .msg-card.speaking .wave-bars { display: flex; }
+
+  .wave-bars span {
+    display: inline-block;
+    width: 3px;
+    background: var(--live);
+    border-radius: 2px;
+    animation: wave 0.8s ease-in-out infinite;
+  }
+
+  .wave-bars span:nth-child(1) { animation-delay: 0s; height: 8px; }
+  .wave-bars span:nth-child(2) { animation-delay: 0.1s; height: 14px; }
+  .wave-bars span:nth-child(3) { animation-delay: 0.2s; height: 10px; }
+  .wave-bars span:nth-child(4) { animation-delay: 0.3s; height: 6px; }
+  .wave-bars span:nth-child(5) { animation-delay: 0.15s; height: 12px; }
+
+  @keyframes wave {
+    0%, 100% { transform: scaleY(0.4); opacity: 0.6; }
+    50% { transform: scaleY(1); opacity: 1; }
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    border: 1px dashed var(--border);
+  }
+
+  .empty-state .icon { font-size: 2rem; margin-bottom: 12px; opacity: 0.4; }
+
+  /* TTS toggle */
+  .tts-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.65rem;
+    letter-spacing: 2px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .toggle-switch {
+    width: 36px; height: 20px;
+    background: var(--border);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch.on { background: var(--live); }
+
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle-switch.on::after { transform: translateX(16px); }
+
+  /* notification toast */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--live);
+    color: #000;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 12px 24px;
+    border-radius: 2px;
+    z-index: 999;
+    transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
 </head>
-
 <body>
 
-  <h2>🔊 Live TTS Chat</h2>
+<header>
+  <div class="logo">BROAD<span>CAST</span></div>
+  <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+  <div class="listener-count">listeners: <strong id="listenerCount">1</strong></div>
+</header>
 
-  <input id="msgInput" placeholder="Type message...">
-  <button onclick="sendMsg()">Send</button>
+<main>
+  <!-- Compose -->
+  <div class="compose">
+    <div class="compose-label">// transmit message</div>
+    <textarea id="msgInput" placeholder="type something... everyone will hear it." maxlength="300" rows="3"></textarea>
+    <div class="compose-footer">
+      <span class="char-count" id="charCount">0 / 300</span>
+      <button class="send-btn" id="sendBtn">BROADCAST</button>
+    </div>
+  </div>
 
-  <div id="messages"></div>
+  <!-- Controls -->
+  <div style="display:flex; justify-content:flex-end;">
+    <label class="tts-toggle" id="ttsToggle" title="Toggle text-to-speech">
+      <div class="toggle-switch on" id="ttsSwitch"></div>
+      AUTO-SPEAK
+    </label>
+  </div>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
+  <!-- Feed -->
+  <div class="feed-header">LIVE FEED</div>
+  <div class="feed" id="feed">
+    <div class="empty-state" id="emptyState">
+      <div class="icon">📡</div>
+      NO TRANSMISSIONS YET<br>BE THE FIRST TO BROADCAST
+    </div>
+  </div>
+</main>
 
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyA3fWq3U4yXfH7Lq1VmMFOWC285t_tsbVg",
-      authDomain: "puchku-740b1.firebaseapp.com",
-      projectId: "puchku-740b1",
-      storageBucket: "puchku-740b1.firebasestorage.app",
-      messagingSenderId: "777932737041",
-      appId: "1:777932737041:web:214ea01432011da9bbffb0"
+<div class="toast" id="toast"></div>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, push, onChildAdded, onValue, set, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyA3fWq3U4yXfH7Lq1VmMFOWC285t_tsbVg",
+    authDomain: "puchku-740b1.firebaseapp.com",
+    projectId: "puchku-740b1",
+    storageBucket: "puchku-740b1.firebasestorage.app",
+    messagingSenderId: "777932737041",
+    appId: "1:777932737041:web:214ea01432011da9bbffb0",
+    databaseURL: "https://puchku-740b1-default-rtdb.firebaseio.com"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const messagesRef = ref(db, 'broadcasts');
+
+  // ── State ──────────────────────────────────────
+  let ttsEnabled = true;
+  let speakQueue = [];
+  let isSpeaking = false;
+  let currentCard = null;
+  let isFirst = true; // skip speaking on initial load
+
+  const feed      = document.getElementById('feed');
+  const msgInput  = document.getElementById('msgInput');
+  const sendBtn   = document.getElementById('sendBtn');
+  const charCount = document.getElementById('charCount');
+  const emptyState= document.getElementById('emptyState');
+  const ttsSwitch = document.getElementById('ttsSwitch');
+  const ttsToggle = document.getElementById('ttsToggle');
+  const toast     = document.getElementById('toast');
+
+  // ── TTS Toggle ────────────────────────────────
+  ttsToggle.addEventListener('click', () => {
+    ttsEnabled = !ttsEnabled;
+    ttsSwitch.classList.toggle('on', ttsEnabled);
+    if (!ttsEnabled) window.speechSynthesis.cancel();
+    showToast(ttsEnabled ? 'AUTO-SPEAK ON' : 'AUTO-SPEAK OFF');
+  });
+
+  // ── Char count ───────────────────────────────
+  msgInput.addEventListener('input', () => {
+    const len = msgInput.value.length;
+    charCount.textContent = `${len} / 300`;
+    charCount.classList.toggle('warn', len > 260);
+  });
+
+  // ── Send ─────────────────────────────────────
+  sendBtn.addEventListener('click', sendMessage);
+  msgInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendMessage();
+  });
+
+  function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+
+    sendBtn.disabled = true;
+    sendBtn.classList.add('sending');
+    sendBtn.textContent = 'SENDING...';
+
+    push(messagesRef, {
+      text,
+      timestamp: serverTimestamp(),
+      id: Date.now()
+    }).then(() => {
+      msgInput.value = '';
+      charCount.textContent = '0 / 300';
+      charCount.classList.remove('warn');
+      sendBtn.textContent = 'BROADCAST';
+      sendBtn.disabled = false;
+      sendBtn.classList.remove('sending');
+    }).catch(err => {
+      console.error(err);
+      showToast('ERROR — CHECK CONSOLE');
+      sendBtn.textContent = 'BROADCAST';
+      sendBtn.disabled = false;
+    });
+  }
+
+  // ── Listen for messages ───────────────────────
+  let loadedKeys = new Set();
+
+  // First, collect existing keys without speaking them
+  onValue(messagesRef, snapshot => {
+    if (!isFirst) return;
+    if (snapshot.exists()) {
+      snapshot.forEach(child => loadedKeys.add(child.key));
+    }
+    isFirst = false;
+  }, { onlyOnce: true });
+
+  onChildAdded(messagesRef, snapshot => {
+    const key = snapshot.key;
+    const data = snapshot.val();
+    if (!data?.text) return;
+
+    // Remove empty state
+    if (emptyState.parentNode) emptyState.remove();
+
+    const card = createCard(data.text, data.timestamp);
+    feed.prepend(card);
+
+    // Only speak if it's a new message (not initial load)
+    if (!loadedKeys.has(key) && ttsEnabled) {
+      loadedKeys.add(key);
+      queueSpeak(data.text, card);
+    } else {
+      loadedKeys.add(key);
+    }
+  });
+
+  // ── TTS Queue ─────────────────────────────────
+  function queueSpeak(text, card) {
+    speakQueue.push({ text, card });
+    if (!isSpeaking) processQueue();
+  }
+
+  function processQueue() {
+    if (!speakQueue.length || !ttsEnabled) { isSpeaking = false; return; }
+    isSpeaking = true;
+    const { text, card } = speakQueue.shift();
+
+    if (currentCard) currentCard.classList.remove('speaking');
+    card.classList.add('speaking');
+    currentCard = card;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 0.95;
+    utter.pitch = 1.05;
+
+    utter.onend = () => {
+      card.classList.remove('speaking');
+      currentCard = null;
+      isSpeaking = false;
+      processQueue();
     };
 
-    // Init Firebase
-    const app = firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    utter.onerror = () => {
+      card.classList.remove('speaking');
+      isSpeaking = false;
+      processQueue();
+    };
 
-    // Send message
-    function sendMsg() {
-      const input = document.getElementById("msgInput");
-      const text = input.value.trim();
+    window.speechSynthesis.speak(utter);
+  }
 
-      if (text === "") return;
+  // ── Card builder ──────────────────────────────
+  const emojis = ['📡','🔊','📢','📣','🎙️','💬'];
 
-      db.collection("messages").add({
-        text: text,
-        time: Date.now()
-      });
+  function createCard(text, ts) {
+    const card = document.createElement('div');
+    card.className = 'msg-card';
 
-      input.value = "";
-    }
+    const time = ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now';
+    const icon = emojis[Math.floor(Math.random() * emojis.length)];
 
-    // Listen for messages
-    db.collection("messages")
-      .orderBy("time")
-      .onSnapshot(snapshot => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type === "added") {
-            const data = change.doc.data();
+    card.innerHTML = `
+      <div class="msg-icon">${icon}</div>
+      <div class="msg-body">
+        <div class="msg-meta">
+          <span>${time}</span>
+          <div class="wave-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="msg-text">${escapeHtml(text)}</div>
+      </div>
+    `;
+    return card;
+  }
 
-            // Show on screen
-            const div = document.createElement("div");
-            div.className = "msg";
-            div.innerText = data.text;
-            document.getElementById("messages").appendChild(div);
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
-            // Speak it
-            speak(data.text);
-          }
-        });
-      });
-
-    // TTS function
-    function speak(text) {
-      const speech = new SpeechSynthesisUtterance(text);
-      speech.lang = "en-US";
-      speech.pitch = 1;
-      speech.rate = 1;
-      speechSynthesis.speak(speech);
-    }
-  </script>
-
+  // ── Toast ─────────────────────────────────────
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+</script>
 </body>
 </html>
