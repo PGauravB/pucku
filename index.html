@@ -493,14 +493,17 @@ function showToast(msg) {
 /* ── FIRESTORE LISTENER ── */
 function startListener() {
   const q = query(collection(db,"messages"), orderBy("time"));
+  let firstLoad = true;
+
   onSnapshot(q, snap => {
-    if (!me) return;
     chat.innerHTML = '<div class="ddiv">Today</div>';
     const msgs = [];
     snap.forEach(d => msgs.push({id:d.id,...d.data()}));
 
     msgs.forEach((msg,i) => {
-      const isMe = msg.user === me;
+      // KEY FIX: always compare msg.user to the logged-in user (me)
+      // Gaurav's messages → right (me), Bidhisha's messages → left (them)
+      const isMe = (msg.user === me);
       const side = isMe ? "me" : "them";
       const prev = msgs[i-1], next = msgs[i+1];
       const sp   = prev && prev.user===msg.user;
@@ -514,14 +517,16 @@ function startListener() {
         chat.appendChild(ts);
       }
 
-      /* row */
+      /* row — skip pop-in animation on first load so history shows instantly */
       const row=document.createElement("div");
       row.className=`row ${side} ${pos}`;
+      if (firstLoad) row.style.animation = "none";
 
-      /* avatar for them */
+      /* avatar for them side only */
       if (!isMe) {
         const av=document.createElement("div");
-        av.className="av sm"; av.textContent=msg.user[0];
+        av.className="av sm";
+        av.textContent=msg.user[0];
         av.style.visibility=sn?"hidden":"visible";
         row.appendChild(av);
       }
@@ -549,12 +554,11 @@ function startListener() {
         rb.onclick=e=>e.stopPropagation(); bbl.appendChild(rb);
       }
 
-      /* single tap → reply + heart */
+      /* single tap → set reply + heart  |  double-tap → ❤️ react */
       let lastTap=0;
       bbl.addEventListener("click", e => {
         const now=Date.now();
-        /* double tap = heart react */
-        if (now-lastTap<300) {
+        if (now-lastTap<320) {
           updateDoc(doc(db,"messages",msg.id),{reaction:"❤️"});
           spawnHeart(e.clientX,e.clientY); lastTap=0; return;
         }
@@ -567,7 +571,7 @@ function startListener() {
       });
 
       /* long press → reaction picker */
-      bbl.addEventListener("pointerdown", e => {
+      bbl.addEventListener("pointerdown", () => {
         holdTimer=setTimeout(()=>{
           reactDocId=msg.id;
           const bnd=bbl.getBoundingClientRect();
@@ -582,19 +586,24 @@ function startListener() {
       chat.appendChild(row);
     });
 
-    /* seen row */
-    if (msgs.length && msgs[msgs.length-1].user===me) {
-      const sr=document.createElement("div"); sr.className="srow";
-      const other=me==="Gaurav"?"Bidhisha":"Gaurav";
-      const sav=document.createElement("div");
-      sav.className="av sm"; sav.style.width="14px"; sav.style.height="14px";
-      sav.style.fontSize="7px"; sav.textContent=other[0];
-      sr.appendChild(sav);
-      sr.appendChild(document.createTextNode(" Seen"));
-      chat.appendChild(sr);
+    /* seen row — only show under your own last message */
+    if (msgs.length) {
+      const last = msgs[msgs.length-1];
+      if (last.user === me) {
+        const sr=document.createElement("div"); sr.className="srow";
+        const other=me==="Gaurav"?"Bidhisha":"Gaurav";
+        const sav=document.createElement("div");
+        sav.className="av sm";
+        sav.style.cssText="width:14px;height:14px;font-size:7px;flex-shrink:0";
+        sav.textContent=other[0];
+        sr.appendChild(sav);
+        sr.appendChild(document.createTextNode(" Seen"));
+        chat.appendChild(sr);
+      }
     }
 
     chat.scrollTop=chat.scrollHeight;
+    firstLoad = false;
   });
 }
 </script>
