@@ -246,7 +246,16 @@
     background: var(--border);
   }
 
-  .feed { display: flex; flex-direction: column; gap: 12px; }
+  /* Feed container - normal column order, we'll control visual order via JavaScript */
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 4px 0;
+    scroll-behavior: smooth;
+  }
 
   .msg-card {
     background: var(--surface);
@@ -259,6 +268,11 @@
     gap: 16px;
     animation: slideIn 0.35s cubic-bezier(0.16,1,0.3,1);
     position: relative;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   .msg-card.mine { border-left-color: var(--accent2); }
@@ -276,11 +290,6 @@
     letter-spacing: 3px;
     color: var(--live);
     font-weight: 700;
-  }
-
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
   }
 
   .msg-icon {
@@ -405,11 +414,11 @@
   <div class="controls-row">
     <label class="tts-toggle" id="ttsToggle">
       <div class="toggle-switch on" id="ttsSwitch"></div>
-      AUTO-SPEAK
+      AUTO-SPEAK (OTHERS ONLY)
     </label>
   </div>
 
-  <div class="feed-header">LIVE FEED</div>
+  <div class="feed-header">LIVE FEED — NEWEST FIRST</div>
   <div class="feed" id="feed">
     <div class="empty-state" id="emptyState">
       <div class="icon">📡</div>
@@ -462,6 +471,17 @@
   let currentCard  = null;
   let initialLoad  = true;
   const rendered   = new Set();
+  let isUserScrolling = false;
+  let scrollTimeout = null;
+
+  // ── Track user scroll to auto-scroll only when they're at top ──
+  feed.addEventListener('scroll', () => {
+    isUserScrolling = true;
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      isUserScrolling = false;
+    }, 150);
+  });
 
   // ── TTS toggle ────────────────────────────────
   ttsToggle.addEventListener('click', () => {
@@ -473,7 +493,7 @@
       isSpeaking = false;
       if (currentCard) { currentCard.classList.remove('speaking'); currentCard = null; }
     }
-    showToast(ttsEnabled ? 'AUTO-SPEAK ON' : 'AUTO-SPEAK OFF');
+    showToast(ttsEnabled ? 'AUTO-SPEAK ON (others only)' : 'AUTO-SPEAK OFF');
   });
 
   // ── Char count ────────────────────────────────
@@ -507,8 +527,27 @@
     sendBtn.disabled = false;
   }
 
-  // ── Listener ──────────────────────────────────
-  const q = query(col, orderBy('createdAt', 'asc'), limit(60));
+  // ── Helper: Insert message at the top (newest first) ──
+  function insertMessageAtTop(card, shouldAutoScroll = true) {
+    // Remove empty state if present
+    if (emptyState.parentNode) {
+      emptyState.remove();
+    }
+    
+    // Insert at the beginning of the feed (top position in DOM)
+    feed.insertBefore(card, feed.firstChild);
+    
+    // Auto-scroll to top only if user hasn't manually scrolled away
+    if (shouldAutoScroll && !isUserScrolling) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        feed.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 50);
+    }
+  }
+
+  // ── Query: order by createdAt DESCENDING to get newest first from Firestore ──
+  const q = query(col, orderBy('createdAt', 'desc'), limit(60));
 
   onSnapshot(q,
     snapshot => {
@@ -517,26 +556,29 @@
 
       if (initialLoad) {
         initialLoad = false;
-        // Render all existing messages silently
-        if (emptyState.parentNode) emptyState.remove();
+        // Clear feed and empty state
         feed.innerHTML = '';
+        rendered.clear();
 
         if (snapshot.empty) {
           emptyState.innerHTML = '<div class="icon">📡</div>NO TRANSMISSIONS YET<br>BE THE FIRST TO BROADCAST';
           feed.appendChild(emptyState);
         } else {
+          // For initial load, we need to add messages in order (newest first)
+          // So we iterate in the order they come from Firestore (already newest first)
           snapshot.docs.forEach(doc => {
             rendered.add(doc.id);
             const d = doc.data();
-            feed.appendChild(createCard(d.text, d.createdAt, d.session === sessionId));
+            const card = createCard(d.text, d.createdAt, d.session === sessionId);
+            feed.appendChild(card);
           });
-          // scroll to newest
-          feed.lastElementChild?.scrollIntoView({ behavior: 'instant' });
+          // Scroll to top to show newest messages
+          feed.scrollTop = 0;
         }
         return;
       }
 
-      // Live updates — only new additions
+      // Live updates: only handle new documents (added)
       snapshot.docChanges().forEach(change => {
         if (change.type !== 'added') return;
         const doc = change.doc;
@@ -547,11 +589,26 @@
         const isMine = d.session === sessionId;
         const card = createCard(d.text, d.createdAt, isMine);
 
-        if (emptyState.parentNode) emptyState.remove();
-        feed.appendChild(card);
-        card.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        // Check if user is near the top before auto-scrolling
+        const isNearTop = feed.scrollTop <= 100;
+        
+        // Insert new message at the top
+        if (emptyState.parentNode) {
+          emptyState.remove();
+        }
+        feed.insertBefore(card, feed.firstChild);
+        
+        // Auto-scroll to top only if user is already near the top or hasn't scrolled away
+        if (!isUserScrolling && isNearTop) {
+          setTimeout(() => {
+            feed.scrollTo({ top: 0, behavior: 'smooth' });
+          }, 50);
+        }
 
-        if (ttsEnabled) queueSpeak(d.text, card);
+        // Only speak if message is NOT from current user
+        if (ttsEnabled && !isMine) {
+          queueSpeak(d.text, card);
+        }
       });
     },
     err => {
@@ -569,38 +626,74 @@
   }
 
   function processQueue() {
-    if (!speakQueue.length || !ttsEnabled) { isSpeaking = false; return; }
+    if (!speakQueue.length || !ttsEnabled) { 
+      isSpeaking = false; 
+      return; 
+    }
     isSpeaking = true;
     const { text, card } = speakQueue.shift();
 
-    if (currentCard) currentCard.classList.remove('speaking');
+    // Remove speaking class from previous card
+    if (currentCard && currentCard !== card) {
+      currentCard.classList.remove('speaking');
+    }
     card.classList.add('speaking');
     currentCard = card;
 
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate  = 0.95;
     utter.pitch = 1.05;
-    utter.onend   = () => { card.classList.remove('speaking'); currentCard = null; isSpeaking = false; processQueue(); };
-    utter.onerror = () => { card.classList.remove('speaking'); isSpeaking = false; processQueue(); };
+    utter.lang  = 'en-US';
+    
+    utter.onend   = () => { 
+      if (currentCard) currentCard.classList.remove('speaking'); 
+      currentCard = null; 
+      isSpeaking = false; 
+      processQueue(); 
+    };
+    
+    utter.onerror = (event) => {
+      if (event.error !== 'canceled') {
+        console.warn('Speech error:', event.error);
+      }
+      if (currentCard) currentCard.classList.remove('speaking');
+      currentCard = null;
+      isSpeaking = false;
+      processQueue();
+    };
+    
     window.speechSynthesis.speak(utter);
   }
 
-  // ── Card ──────────────────────────────────────
+  // ── Card Creator ──────────────────────────────────────
   const emojis = ['📡','🔊','📢','📣','🎙️','💬'];
+
+  function formatTime(ts) {
+    if (!ts || !ts.toDate) return 'just now';
+    const date = ts.toDate();
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    
+    if (diffSec < 10) return 'just now';
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return date.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  }
 
   function createCard(text, ts, isMine) {
     const card = document.createElement('div');
     card.className = 'msg-card' + (isMine ? ' mine' : '');
-
-    let timeStr = 'just now';
-    if (ts && ts.toDate) timeStr = ts.toDate().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    
+    const timeStr = formatTime(ts);
 
     card.innerHTML = `
       <div class="msg-icon">${emojis[Math.floor(Math.random()*emojis.length)]}</div>
       <div class="msg-body">
         <div class="msg-meta">
           <span>${timeStr}</span>
-          ${isMine ? '<span class="you-tag">YOU</span>' : ''}
+          ${isMine ? '<span class="you-tag">YOU</span>' : '<span class="you-tag" style="color: var(--live);">RECEIVED</span>'}
           <div class="wave-bars"><span></span><span></span><span></span><span></span><span></span></div>
         </div>
         <div class="msg-text">${esc(text)}</div>
